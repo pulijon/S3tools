@@ -14,12 +14,21 @@ FILE_NAME=$2
 STORAGE_CLASS=$3
 PART_SIZE=$((100*1024*1024)) # 100 MB en bytes
 REGION="us-east-2"
+CRYPT_EXTENSION="s3c"
 
 # Crear bucket si no existe
 if ! aws s3api head-bucket --bucket "$BUCKET_NAME" 2>/dev/null; then
     echo "Creando bucket $BUCKET_NAME..."
     aws s3api create-bucket --bucket "$BUCKET_NAME" --region $REGION --create-bucket-configuration LocationConstraint="$REGION"
 fi
+
+if [ -n $S3_CRYPT_KEY ]
+then
+    CRYPT_FILE_NAME=${FILE_NAME}.${CRYPT_EXTENSION}
+    openssl enc -aes-256-cbc -salt -in "$FILE_NAME" -out "${CRYPT_FILE_NAME}" -pass env:S3_CRYPT_KEY
+    FILE_NAME="$CRYPT_FILE_NAME"
+fi
+
 
 FILE_SIZE=$(stat -c %s $FILE_NAME)
 
