@@ -1,10 +1,10 @@
 #!/bin/bash
 
-GLACIER_REGEX='(STANDARD|INTELLIGENT_TIERING|STANDARD_IA|ONEZONE_IA|GLACIER|GLACIER_IR|DEEP_ARCHIVE|REDUCED_REDUNDANCY)$'
+STORAGE_CLASS_REGEX='(STANDARD|INTELLIGENT_TIERING|STANDARD_IA|ONEZONE_IA|GLACIER|GLACIER_IR|DEEP_ARCHIVE|REDUCED_REDUNDANCY)$'
 
 # Verifica que se hayan pasado tres parámetros y que el tipo de almacenamiento es correcto
-if [ "$#" -ne 3 ] || [[ ! $3 =~ $GLACIER_REGEX ]]; then
-    echo "Uso: $0 nombre-del-bucket nombre-del-archivo clase-de-almacenamiento ${GLACIER_REGEX}%$"
+if [ "$#" -ne 3 ] || [[ ! $3 =~ $STORAGE_CLASS_REGEX ]]; then
+    echo "Uso: $0 nombre-del-bucket nombre-del-archivo clase-de-almacenamiento ${STORAGE_CLASS_REGEX}%$"
     exit 1
 fi
 
