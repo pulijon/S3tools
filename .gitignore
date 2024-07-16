@@ -1,3 +1,4 @@
 NoGit/
 .venv*/
 *.log
+.vscode/
