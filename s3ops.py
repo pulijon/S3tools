@@ -155,7 +155,7 @@ class S3Ops():
 
         logging.info("Descarga completada exitosamente.")
         
-     def delete_file(self, bucket, fname):
+    def delete_file(self, bucket, fname):
         if not self.exists_bucket(bucket):
             raise ClientError(f"No existe bucket {bucket}")
         logging.info(f"Borrando fichero {fname} de bucket {bucket}")
