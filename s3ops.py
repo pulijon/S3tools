@@ -48,7 +48,7 @@ class S3Ops():
             return []
         else:
             return [obj['Key'] for obj in response['Contents']]
-    
+
     def exists_bucket(self, bucket):
         return bucket in self.list_buckets()
     
@@ -155,22 +155,29 @@ class S3Ops():
 
         logging.info("Descarga completada exitosamente.")
         
-    def delete_file(self, bucket, fname):
+     def delete_file(self, bucket, fname):
         if not self.exists_bucket(bucket):
             raise ClientError(f"No existe bucket {bucket}")
         logging.info(f"Borrando fichero {fname} de bucket {bucket}")
-        self.client.delete_object(Bucket=bucket,
-                                  Key=fname)
-        
+        try:
+            self.client.delete_object(Bucket=bucket, Key=fname)
+            logging.info(f"Fichero {fname} borrado de bucket {bucket}")
+        except ClientError as e:
+            logging.error(f"Error al borrar el fichero {fname} del bucket {bucket}: {e}")
+            raise
+
     def delete_bucket(self, bucket):
         if not self.exists_bucket(bucket):
             raise ClientError(f"No existe bucket {bucket}")
-        bucket_resource = self.resource(bucket)
-        del_objs = bucket_resource.objects.all()
-        logging.info(f"Borrando objetos {del_objs} de bucket {bucket}")
-        del_objs.delete()
-        logging.info(f"Borrando bucket {bucket}")
-        self.client.delete_bucket(bucket)
+        bucket_resource = self.resource.Bucket(bucket)
+        try:
+            bucket_resource.objects.all().delete()
+            logging.info(f"Objetos del bucket {bucket} borrados")
+            bucket_resource.delete()
+            logging.info(f"Bucket {bucket} borrado")
+        except ClientError as e:
+            logging.error(f"Error al borrar el bucket {bucket}: {e}")
+            raise
         
 def main():
     pass
