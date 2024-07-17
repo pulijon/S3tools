@@ -77,6 +77,7 @@ DEFAULT_VAULT = "default-vault"
 DEFAULT_OPERATION = 'list_buckets'
 DEFAULT_ENV_CRYPT_KEY = 'S3_CRYPT_KEY'
 DEFAULT_REGION = 'us-east-2'
+DEFAULT_STORAGE_CLASS = 'STANDARD'
 
 def main():
     args = get_pars()
@@ -97,9 +98,9 @@ def get_pars():
     parser.add_argument("-o", "--output-fname", type=str,
                         help=f"fichero resultado")
     parser.add_argument("-r", "--region", type=str, default=DEFAULT_REGION,
-                        help=f"fichero resultado")
-    parser.add_argument("-s", "--storage-class", choices=STORAGE_CLASSES, type=str,
-                        help=f"fichero resultado")
+                        help=f"region. Por defecto, {DEFAULT_REGION}")
+    parser.add_argument("-s", "--storage-class", choices=STORAGE_CLASSES, type=str, default=DEFAULT_STORAGE_CLASS,
+                        help=f"clase de almacenamiento. Por defecto, {DEFAULT_STORAGE_CLASS}")
 
     return parser.parse_args()
 
