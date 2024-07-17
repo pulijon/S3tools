@@ -13,22 +13,26 @@ S3_AWS_SERVICE = 's3'
 
 class S3Ops():
     @staticmethod
-    def split_file(file_path, part_size):
-        file_base_name = os.path.basename(file_path)
+    def split_file(fname, part_size):
+        fname_path, fname_base = os.path.split(fname)
         part_number = 0
+        parts = []
 
-        with open(file_path, 'rb') as file:
+        with open(fname, 'rb') as file:
             while True:
                 part_data = file.read(part_size)
                 if not part_data:
                     break
 
-                part_file_name = f"{file_base_name}.part{part_number:04d}"
+                part_base_file_name = f"{fname_base}.part{part_number:04d}"
+                part_file_name = os.path.join(fname_path, part_base_file_name)
                 with open(part_file_name, 'wb') as part_file:
                     part_file.write(part_data)
 
                 part_number += 1
                 print(f"Parte {part_number} creada: {part_file_name}")
+                parts.append(part_file_name)
+        return parts
 
     def __init__(self, 
                  region = DEFAULT_REGION, 
@@ -59,7 +63,7 @@ class S3Ops():
             CreateBucketConfiguration={'LocationConstraint': self.region})
         logging.info(f"Bucket {bucket} creado")
 
-    def upload_file_to_bucket(self, bucket, fname):
+    def upload_file_to_bucket(self, bucket, fname, storage_class=DEFAULT_STORAGE_CLASS):
         logging.info(f"Subiendo archivo {fname} a bucket {bucket}")
         file_size = os.path.getsize(fname)
         if file_size <= PART_SIZE:
@@ -67,9 +71,9 @@ class S3Ops():
             self.client.upload_file(fname, 
                                     bucket, 
                                     fname, 
-                                    ExtraArgs={'StorageClass': self.storage_class})
+                                    ExtraArgs={'StorageClass': storage_class})
         else:
-            self.split_file(fname, PART_SIZE)
+            parts = self.split_file(fname, PART_SIZE)
             # Dividir el archivo en partes de 100 MB
 
             # Iniciar la carga multipart
@@ -79,20 +83,19 @@ class S3Ops():
             # Subir las partes
             part_number = 1
             etags = []
-
-            for part in sorted(os.listdir('.')):
-                if part.startswith(f"{fname}.part"):
-                    logging.info(f"Subiendo parte {part_number}: {part}")
-                    with open(part, 'rb') as data:
-                        response = self.client.upload_part(
-                            Bucket=bucket,
-                            Key=fname,
-                            PartNumber=part_number,
-                            UploadId=upload_id,
-                            Body=data
-                        )
-                    etags.append({'PartNumber': part_number, 'ETag': response['ETag']})
-                    part_number += 1
+            
+            for part in parts:
+                logging.info(f"Subiendo parte {part_number}: {part}")
+                with open(part, 'rb') as data:
+                    response = self.client.upload_part(
+                        Bucket=bucket,
+                        Key=fname,
+                        PartNumber=part_number,
+                        UploadId=upload_id,
+                        Body=data
+                    )
+                etags.append({'PartNumber': part_number, 'ETag': response['ETag']})
+                part_number += 1
 
             # Completar la carga multipart
             self.client.complete_multipart_upload(
@@ -103,9 +106,8 @@ class S3Ops():
             )
 
             # Limpiar las partes divididas
-            for part in sorted(os.listdir('.')):
-                if part.startswith(f"{fname}.part"):
-                    os.remove(part)
+            for part in parts:
+                os.remove(part)
 
             logging.info("Carga multipart completada exitosamente.")
     

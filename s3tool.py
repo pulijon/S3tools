@@ -105,7 +105,6 @@ def get_pars():
 
 if __name__ == "__main__":
     logcfg(__file__)
-
     stime = datetime.datetime.now()
     main()
     etime = datetime.datetime.now()
