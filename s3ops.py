@@ -124,7 +124,7 @@ class S3Ops():
         # Descargar el archivo en partes si es necesario
         if file_size <= PART_SIZE:
             logging.info("Descargando archivo completo...")
-            self.client.download_file(bucket, fname, fname)
+            self.client.download_file(bucket, fname, dest_fname)
         else:
             print("Descargando archivo en partes...")
             part_number = 1
