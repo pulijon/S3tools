@@ -2,11 +2,13 @@ import tkinter as tk
 from tkinter import ttk, filedialog, messagebox, simpledialog
 from s3ops import S3Ops
 from s3crypt import S3Crypt
+import os
 
 DEFAULT_ENV_CRYPT_KEY = 'S3_CRYPT_KEY'
 DEFAULT_REGION = 'us-east-2'
-DEFAULT_STORAGE_CLASS='STANDARD'
-
+DEFAULT_STORAGE_CLASS ='STANDARD'
+CRYPT_EXTENSION = ".s3enc"
+DECRYPT_EXTENSION = ".s3dec"
 
 class S3App:
     def __init__(self, root):
@@ -61,7 +63,6 @@ class S3App:
         self.encrypt_var = tk.IntVar()
         self.encrypt_check = tk.Checkbutton(self.btn_frame, text="Encriptar/Desencriptar", variable=self.encrypt_var)
         self.encrypt_check.pack(side=tk.LEFT, padx=5, pady=5)
-        
         self.load_buckets()
 
     def create_bucket(self):
@@ -103,7 +104,7 @@ class S3App:
         if file_path:
             storage_class = self.storage_var.get()
             if self.encrypt_var.get():
-                output_file_path = f"{file_path}.enc"
+                output_file_path = f'{file_path}{CRYPT_EXTENSION}'
                 self.crypt.encrypt_file(file_path, output_file_path)
                 file_path = output_file_path
             self.ops.upload_file_to_bucket(bucket_name, file_path, storage_class=storage_class)
@@ -119,7 +120,8 @@ class S3App:
         if dest_path:
             self.ops.download_file_from_bucket(bucket_name, file_name, dest_path)
             if self.encrypt_var.get():
-                output_file_path = dest_path.replace('.enc', '') if dest_path.endswith('.enc') else f"{dest_path}.dec"
+                dest_root, dest_ext = os.path.splitext(dest_path)
+                output_file_path = dest_root if dest_ext == CRYPT_EXTENSION else f'{dest_path}{DECRYPT_EXTENSION}'
                 self.crypt.decrypt_file(dest_path, output_file_path)
 
     def delete_file(self):
