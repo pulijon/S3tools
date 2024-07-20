@@ -1,8 +1,13 @@
+from util import logcfg
+import logging
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox, simpledialog
-from s3ops import S3Ops
+from s3job import S3job
 from s3crypt import S3Crypt
 import os
+import threading
+import queue
+import uuid
 
 DEFAULT_ENV_CRYPT_KEY = 'S3_CRYPT_KEY'
 DEFAULT_REGION = 'us-east-2'
@@ -15,10 +20,7 @@ class S3App:
         self.root = root
         self.root.title("S3 Manager")
 
-        self.ops = S3Ops(region=DEFAULT_REGION, 
-                         storage_class=DEFAULT_STORAGE_CLASS)
         self.crypt = S3Crypt(DEFAULT_ENV_CRYPT_KEY)
-
 
         self.storage_classes = [
             'STANDARD',
@@ -63,52 +65,84 @@ class S3App:
         self.encrypt_var = tk.IntVar()
         self.encrypt_check = tk.Checkbutton(self.btn_frame, text="Encriptar/Desencriptar", variable=self.encrypt_var)
         self.encrypt_check.pack(side=tk.LEFT, padx=5, pady=5)
-        self.load_buckets()
+        
+        self.jobs = {}
+        self.qprog = queue.Queue()
+        threading.Thread(target=self.manage_jobs, daemon=True).start()
+        self.start_s3job('list_buckets')
+
+    def start_s3job(self, op, **args):
+        jobid = str(uuid.uuid4())
+        newjob = S3job(jobid, op, self.qprog, **args)
+        self.jobs[jobid] = newjob
+        newjob.start()
+         
+    def manage_jobs(self):
+        while True:
+            idjob, event, data = self.qprog.get()
+            logging.debug(f"Llega mensaje idjob={idjob}, event={event}, data={data}")
+            if not idjob in self.jobs:
+                logging.error(f"No hay job con id {idjob}")
+                continue
+            job = self.jobs[idjob]
+            if event == 'completed':
+                logging.info(f"Tarea {idjob} terminada")
+                jobtype = job.jobtype
+                
+                # Dependiendo de la tarea que se acaba, hay que hacer cosas distintas
+                if jobtype == 'list_buckets':
+                    buckets = data
+                    self.tree.delete(*self.tree.get_children(''))
+                    for bucket in buckets:
+                        self.tree.insert('', 'end', bucket, text=bucket, values=[bucket])
+                        self.start_s3job('list_files', bucket=bucket)
+                elif jobtype == 'list_files':
+                    files = data
+                    bucket = job.bucket
+                    self.tree.delete(*self.tree.get_children(bucket))
+                    for file in files:
+                        self.tree.insert(bucket, 'end', f"{bucket}/{file}", text=file, values=[file])
+                elif jobtype == 'create_bucket':
+                    self.start_s3job('list_buckets')
+                elif jobtype == 'delete_bucket':
+                    self.tree.delete(job.bucket)
+                elif (jobtype == 'delete_file') or (jobtype == 'upload'):
+                    self.start_s3job('list_files', bucket=job.bucket)
+                    
+                del self.jobs[idjob]
 
     def create_bucket(self):
-        bucket_name = simpledialog.askstring("Crear Bucket", "Introduce el nombre del nuevo bucket:")
-        if bucket_name:
+        bucket = simpledialog.askstring("Crear Bucket", "Introduce el nombre del nuevo bucket:")
+        if bucket:
             try:
-                self.ops.create_bucket(bucket_name)
-                self.tree.insert('', 'end', bucket_name, text=bucket_name, values=[bucket_name])
-                messagebox.showinfo("Éxito", f"Bucket {bucket_name} creado exitosamente.")
+                self.start_s3job('create_bucket', bucket=bucket)
             except Exception as e:
-                messagebox.showerror("Error", f"Error al crear el bucket {bucket_name}: {e}")
+                messagebox.showerror("Error", f"Error al crear el bucket {bucket}: {e}")
                 
-    def load_buckets(self):
-        buckets = self.ops.list_buckets()
-        for bucket in buckets:
-            self.tree.insert('', 'end', bucket, text=bucket, values=[bucket])
-            self.load_files(bucket)
-
     def on_open(self, event):
-        item = self.tree.focus()
-        if self.tree.parent(item) == '':
-            self.load_files(item)
+        bucket = self.tree.focus()
+        if self.tree.parent(bucket) == '':
+           self.start_s3job('list_files', bucket=bucket)
 
     def on_select(self, event):
         pass
 
-    def load_files(self, bucket_name):
-        files = self.ops.list_files(bucket_name)
-        self.tree.delete(*self.tree.get_children(bucket_name))
-        for file in files:
-            self.tree.insert(bucket_name, 'end', f"{bucket_name}/{file}", text=file, values=[file])
-
     def upload_file(self):
-        bucket_name = self.get_selected_bucket()
-        if not bucket_name:
+        bucket = self.get_selected_bucket()
+        if not bucket:
             messagebox.showwarning("Advertencia", "Selecciona un bucket primero")
             return
-        file_path = filedialog.askopenfilename()
-        if file_path:
+        local_file = filedialog.askopenfilename()
+        if local_file:
             storage_class = self.storage_var.get()
-            if self.encrypt_var.get():
-                output_file_path = f'{file_path}{CRYPT_EXTENSION}'
-                self.crypt.encrypt_file(file_path, output_file_path)
-                file_path = output_file_path
-            self.ops.upload_file_to_bucket(bucket_name, file_path, storage_class=storage_class)
-            self.load_files(bucket_name)
+            self.start_s3job ('upload', 
+                        bucket=bucket,
+                        local_file=local_file,
+                        crypt = self.crypt,
+                        storage_class = storage_class,
+                        encrypted = self.encrypt_var.get(),
+                        root=self.root)
+
 
     def download_file(self):
         item = self.tree.focus()
@@ -118,22 +152,23 @@ class S3App:
         bucket_name, file_name = item.split('/', 1)
         dest_path = filedialog.asksaveasfilename(initialfile=file_name)
         if dest_path:
-            self.ops.download_file_from_bucket(bucket_name, file_name, dest_path)
-            if self.encrypt_var.get():
-                dest_root, dest_ext = os.path.splitext(dest_path)
-                output_file_path = dest_root if dest_ext == CRYPT_EXTENSION else f'{dest_path}{DECRYPT_EXTENSION}'
-                self.crypt.decrypt_file(dest_path, output_file_path)
+            self.start_s3job('download', 
+                        bucket=bucket_name,
+                        bucket_file=file_name,
+                        local_file=dest_path,
+                        crypt = self.crypt,
+                        encrypted = self.encrypt_var.get(),
+                        root=self.root)
 
     def delete_file(self):
         item = self.tree.focus()
         if not item or '/' not in item:
             messagebox.showwarning("Advertencia", "Selecciona un archivo primero")
             return
-        bucket_name, file_name = item.split('/', 1)
-        confirm = messagebox.askyesno("Confirmar", f"¿Estás seguro de que deseas borrar el archivo {file_name}?")
+        bucket, bucket_file = item.split('/', 1)
+        confirm = messagebox.askyesno("Confirmar", f"¿Estás seguro de que deseas borrar el archivo {bucket_file}?")
         if confirm:
-            self.ops.delete_file(bucket_name, file_name)
-            self.load_files(bucket_name)
+            self.start_s3job('delete_file', bucket=bucket, bucket_file=bucket_file)
 
     def delete_bucket(self):
         bucket_name = self.get_selected_bucket()
@@ -142,8 +177,7 @@ class S3App:
             return
         confirm = messagebox.askyesno("Confirmar", f"¿Estás seguro de que deseas borrar el bucket {bucket_name} y todos sus archivos?")
         if confirm:
-            self.ops.delete_bucket(bucket_name)
-            self.tree.delete(bucket_name)
+            self.start_s3job('delete_bucket', bucket=bucket_name)
 
     def get_selected_bucket(self):
         item = self.tree.focus()
@@ -153,6 +187,7 @@ class S3App:
             return self.tree.parent(item)
 
 if __name__ == "__main__":
+    logcfg(__name__)
     root = tk.Tk()
     app = S3App(root)
     root.mainloop()
