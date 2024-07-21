@@ -11,7 +11,7 @@ handlers:
     class: logging.FileHandler
     formatter: standard
   stream:
-    level: INFO
+    level: DEBUG
     class: logging.StreamHandler
     formatter: standard 
 loggers:
