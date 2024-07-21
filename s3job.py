@@ -8,7 +8,7 @@ import os
 import math
 import time
 
-PART_SIZE = 10 * 1024 * 1024  # 100 MB en bytes
+PART_SIZE = 100 * 1024 * 1024  # 100 MB en bytes
 DEFAULT_REGION = 'us-east-2'
 DEFAULT_STORAGE_CLASS='STANDARD'
 S3_AWS_SERVICE = 's3'
