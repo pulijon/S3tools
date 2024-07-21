@@ -4,7 +4,6 @@ import tkinter as tk
 from tkinter import ttk, filedialog, messagebox, simpledialog
 from s3job import S3job
 from s3crypt import S3Crypt
-import os
 import threading
 import queue
 import uuid

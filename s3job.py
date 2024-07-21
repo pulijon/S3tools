@@ -6,6 +6,7 @@ import boto3
 from botocore.exceptions import ClientError
 import os
 import math
+import time
 
 PART_SIZE = 10 * 1024 * 1024  # 100 MB en bytes
 DEFAULT_REGION = 'us-east-2'
@@ -13,7 +14,6 @@ DEFAULT_STORAGE_CLASS='STANDARD'
 S3_AWS_SERVICE = 's3'
 CRYPT_EXTENSION = ".s3enc"
 DECRYPT_EXTENSION = ".s3dec"
-
 
 class S3job(Thread):
     @staticmethod
@@ -34,7 +34,7 @@ class S3job(Thread):
                     part_file.write(part_data)
 
                 part_number += 1
-                print(f"Parte {part_number} creada: {part_file_name}")
+                logging.debug(f"Parte {part_number} creada: {part_file_name}")
                 parts.append(part_file_name)
         return parts
 
@@ -87,6 +87,41 @@ class S3job(Thread):
                   'completed',
                   list))
 
+    def progress_bar_create(self, label_text, maximum):
+        progress_frame = tk.Frame(self.root)
+        progress_frame.pack(fill=tk.X, padx=5, pady=5)
+
+        label = tk.Label(progress_frame, text=label_text)
+        label.pack(side=tk.TOP, fill=tk.X, pady=(0, 5))
+
+        bar = ttk.Progressbar(progress_frame, 
+                              orient=tk.HORIZONTAL, 
+                              length=400, 
+                              mode='determinate',
+                              maximum=maximum,
+                              value=0)
+        bar.pack(side=tk.TOP, fill=tk.X, pady=(0, 5))
+
+        self.progress_elements = {
+            'frame': progress_frame,
+            'label': label,
+            'bar': bar
+        }
+
+    def progress_bar_destroy(self):
+        time.sleep(3)
+        if self.progress_elements:
+            self.progress_elements['bar'].destroy()
+            self.progress_elements['label'].destroy()
+            self.progress_elements['frame'].destroy()
+            self.progress_elements = {}
+
+    def progress_bar_step(self, steps=1):
+        if self.progress_elements:
+            self.progress_elements['bar']['value']+= steps
+            logging.debug(f"Valor de barra: {self.progress_elements['bar']['value']}")
+            self.root.update_idletasks()
+
     def upload(self):
         bucket = self.bucket
         local_file = self.local_file
@@ -116,10 +151,7 @@ class S3job(Thread):
             multipart_upload = self.client.create_multipart_upload(Bucket=bucket, Key=fname, StorageClass=self.storage_class)
             upload_id = multipart_upload['UploadId']
             
-            bar = ttk.Progressbar(self.root, orient=tk.HORIZONTAL, length=400, mode='determinate')
-            bar["maximum"] = len(parts)
-            bar['value'] = 0
-            bar.pack(side=tk.LEFT, padx=5, pady= 5)
+            self.progress_bar_create(f'Subiendo - bucket: {bucket} - fichero: {fname}', len(parts))
 
             # Subir las partes
             part_number = 1
@@ -137,7 +169,7 @@ class S3job(Thread):
                     )
                 etags.append({'PartNumber': part_number, 'ETag': response['ETag']})
                 part_number += 1
-                bar['value'] = part_number
+                self.progress_bar_step()
 
             # Completar la carga multipart
             self.client.complete_multipart_upload(
@@ -150,7 +182,7 @@ class S3job(Thread):
             # Limpiar las partes divididas
             for part in parts:
                 os.remove(part)
-            bar.destroy()
+            self.progress_bar_destroy()
             logging.info("Carga multipart completada exitosamente.")
 
         self.jobq.put((self.idjob,
@@ -172,15 +204,12 @@ class S3job(Thread):
             logging.info("Descargando archivo completo...")
             self.client.download_file(bucket, bucket_file, local_file)
         else:
-            print("Descargando archivo en partes...")
+            logging.info("Descargando archivo en partes...")
             part_number = 1
             byte_start = 0
-            bar = ttk.Progressbar(self.root, orient=tk.HORIZONTAL, length=400, mode='determinate')
             nparts = math.ceil(file_size / PART_SIZE)
-            bar["maximum"] = nparts
-            bar['value'] = 0
-            bar.pack(side=tk.LEFT, padx=5, pady= 5)
-
+            
+            self.progress_bar_create(f'Descargando - bucket: {bucket} - fichero: {bucket_file}', nparts)
 
 
             while byte_start < file_size:
@@ -189,7 +218,7 @@ class S3job(Thread):
                     byte_end = file_size - 1
 
                 part_file_name = f"{local_file}.part{part_number:04d}"
-                print(f"Descargando parte {part_number}: bytes {byte_start}-{byte_end}")
+                logging.debug(f"Descargando parte {part_number}: bytes {byte_start}-{byte_end}")
                 with open(part_file_name, 'wb') as part_file:
                     response = self.client.get_object(Bucket=bucket, 
                                            Key=bucket_file, 
@@ -197,7 +226,7 @@ class S3job(Thread):
                     part_file.write(response['Body'].read())
 
                 byte_start = byte_end + 1
-                bar['value']= part_number
+                self.progress_bar_step()
                 part_number += 1
 
             # Combinar las partes
@@ -208,7 +237,7 @@ class S3job(Thread):
                     with open(part_file_name, 'rb') as part_file:
                         final_file.write(part_file.read())
                     os.remove(part_file_name)
-            bar.destroy()
+            self.progress_bar_destroy()
             
         if self.encrypted:
             dest_root, dest_ext = os.path.splitext(self.local_file)
